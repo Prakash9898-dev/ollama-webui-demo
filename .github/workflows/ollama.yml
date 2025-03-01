@@ -16,11 +16,17 @@ jobs:
 
     - name: Start Ollama (Fixed)
       run: |
-        killall -q ollama || true
-        timeout 10 bash -c 'while nc -z localhost 11434; do sleep 1; done' || true
+        # Force release port 11434
+        sudo ss -K dst localhost dport = 11434 || true
+        
+        # Start Ollama on all interfaces
         OLLAMA_HOST=0.0.0.0 ollama serve &
-        sleep 5
-        curl -I http://localhost:11434
+        
+        # Wait for API readiness
+        timeout 30 bash -c 'until curl -s http://localhost:11434 >/dev/null; do sleep 2; done'
+        
+        # Verify
+        curl -v http://localhost:11434/api/tags
 
     - name: Install Docker
       run: |
@@ -36,23 +42,30 @@ jobs:
 
     - name: Run Open WebUI
       run: |
+        # Get host IP dynamically
+        HOST_IP=$(hostname -I | awk '{print $1}')
+        
         docker run -d -p 8080:8080 \
-          --add-host=host.docker.internal:host-gateway \
-          -e OLLAMA_BASE_URL="http://host.docker.internal:11434" \
+          -e OLLAMA_BASE_URL="http://$HOST_IP:11434" \
           -e DEFAULT_USERNAME="admin" \
           -e DEFAULT_PASSWORD="your_password" \
           -v open-webui:/app/backend/data \
           --name open-webui \
           ghcr.io/open-webui/open-webui:main
 
-    # Debugging steps (added here)
-    - name: Check Ollama Models
-      run: curl -s http://localhost:11434/api/tags | jq .  # Pretty-print JSON
+    # Debugging steps
+    - name: Verify Network Connectivity
+      run: |
+        HOST_IP=$(hostname -I | awk '{print $1}')
+        echo "Host IP: $HOST_IP"
+        docker run --rm alpine ping -c 3 $HOST_IP
 
-    - name: Test Connection from Open WebUI Container
-      run: docker exec open-webui curl -v http://host.docker.internal:11434/api/tags
+    - name: Test Ollama API from Container
+      run: |
+        HOST_IP=$(hostname -I | awk '{print $1}')
+        docker run --rm curlimages/curl curl -v http://$HOST_IP:11434/api/tags
 
-    - name: View Open WebUI Logs
+    - name: Check Open WebUI Logs
       run: docker logs open-webui
 
     - name: Install ngrok
