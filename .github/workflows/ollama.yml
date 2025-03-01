@@ -1,4 +1,4 @@
-name: Run DeepSeek Coder 1.3B with Bolt.DIY
+name: Run DeepSeek Coder with Unmodified Bolt.DIY
 
 on:
   workflow_dispatch:
@@ -19,25 +19,54 @@ jobs:
     - name: Start Ollama
       run: |
         sudo ss -K dst localhost dport = 11434 || true
-        OLLAMA_HOST=0.0.0.0 OLLAMA_ORIGINS=* ollama serve &
-        timeout 180 bash -c 'until ollama list | grep -q "deepseek"; do sleep 10; done'
+        OLLAMA_HOST=0.0.0.0 ollama serve &
+        timeout 180 bash -c 'until ollama list | grep -q "deepseek"; do sleep 5; done'
+
+    - name: Clone Bolt.DIY
+      run: |
+        git clone https://github.com/Kidjig/bolt.diy.git bolt-app
+        cd bolt-app
 
     - name: Set up Node.js
       uses: actions/setup-node@v3
       with:
-        node-version: 20.x
+        node-version: 18.x
 
-    - name: Clone Bolt.DIY Template
+    - name: Install Dependencies
       run: |
-        git clone https://github.com/stackblitz-labs/bolt.diy.git bolt-app
         cd bolt-app
         npm install
-        
-        # Add Ollama integration
         npm install axios
-        sed -i '/import { Bolt }/a import axios from "axios";' src/app.js
 
-    - name: Start Bolt.DIY Server
+    - name: Add Ollama API Endpoint
+      run: |
+        cd bolt-app
+        echo '
+        import axios from "axios";
+        
+        // Add Ollama endpoint to existing routes
+        export async function ollamaGenerate(prompt) {
+          try {
+            const response = await axios.post("http://localhost:11434/api/generate", {
+              model: "deepseek-coder:1.3b",
+              prompt: prompt,
+              stream: false
+            });
+            return response.data.response;
+          } catch (error) {
+            return `Error: ${error.message}`;
+          }
+        }' > src/ollama.js
+        
+        # Add to existing routes
+        echo 'import { ollamaGenerate } from "./ollama.js";
+        // Add to existing routes
+        app.route("/api/generate", async (req) => {
+          const result = await ollamaGenerate(req.body.prompt);
+          return new Response(result);
+        });' >> src/routes.js
+
+    - name: Start Server
       run: |
         cd bolt-app
         npm run dev &
