@@ -14,12 +14,13 @@ jobs:
     - name: Pull Phi model
       run: ollama pull phi
 
-    - name: Start Ollama
+    - name: Start Ollama (Fixed)
       run: |
-        pkill -f ollama || true
+        killall -q ollama || true
+        timeout 10 bash -c 'while nc -z localhost 11434; do sleep 1; done' || true
         OLLAMA_HOST=0.0.0.0 ollama serve &
         sleep 5
-        curl http://localhost:11434
+        curl -I http://localhost:11434
 
     - name: Install Docker
       run: |
@@ -43,6 +44,16 @@ jobs:
           -v open-webui:/app/backend/data \
           --name open-webui \
           ghcr.io/open-webui/open-webui:main
+
+    # Debugging steps (added here)
+    - name: Check Ollama Models
+      run: curl -s http://localhost:11434/api/tags | jq .  # Pretty-print JSON
+
+    - name: Test Connection from Open WebUI Container
+      run: docker exec open-webui curl -v http://host.docker.internal:11434/api/tags
+
+    - name: View Open WebUI Logs
+      run: docker logs open-webui
 
     - name: Install ngrok
       run: |
