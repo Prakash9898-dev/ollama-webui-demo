@@ -1,4 +1,4 @@
-name: Run DeepSeek Coder with Unmodified Bolt.DIY
+name: Run DeepSeek Coder with Bolt.DIY
 
 on:
   workflow_dispatch:
@@ -38,13 +38,12 @@ jobs:
         npm install
         npm install axios
 
-    - name: Add Ollama API Endpoint
+    - name: Add Ollama Integration
       run: |
         cd bolt-app
-        echo '
-        import axios from "axios";
-        
-        // Add Ollama endpoint to existing routes
+        mkdir -p src
+        echo 'import axios from "axios";
+
         export async function ollamaGenerate(prompt) {
           try {
             const response = await axios.post("http://localhost:11434/api/generate", {
@@ -57,14 +56,12 @@ jobs:
             return `Error: ${error.message}`;
           }
         }' > src/ollama.js
-        
-        # Add to existing routes
+
         echo 'import { ollamaGenerate } from "./ollama.js";
-        // Add to existing routes
         app.route("/api/generate", async (req) => {
           const result = await ollamaGenerate(req.body.prompt);
           return new Response(result);
-        });' >> src/routes.js
+        });' >> src/app.js
 
     - name: Start Server
       run: |
