@@ -19,29 +19,21 @@ jobs:
 
     - name: Install Docker (Fixed)
       run: |
-        # Remove conflicting packages
         sudo apt-get remove -y docker docker-engine docker.io containerd runc
-        
-        # Install dependencies
         sudo apt-get update
         sudo apt-get install -y ca-certificates curl gnupg
-        
-        # Add Docker's official repository
         sudo install -m 0755 -d /etc/apt/keyrings
         curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
         echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu noble stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-        
-        # Install Docker
         sudo apt-get update
         sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-        
-        # Verify installation
         sudo docker --version
 
     - name: Run Open WebUI
       run: |
-        docker run -d -p 8080:8080 --add-host=host.docker.internal:host-gateway \
-          -e OLLAMA_BASE_URL="http://host.docker.internal:11434" \  # <- Added this line
+        docker run -d -p 8080:8080 \
+          --add-host=host.docker.internal:host-gateway \
+          -e OLLAMA_BASE_URL="http://host.docker.internal:11434" \
           -v open-webui:/app/backend/data \
           --name open-webui \
           ghcr.io/open-webui/open-webui:main
