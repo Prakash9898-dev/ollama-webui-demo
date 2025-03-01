@@ -1,4 +1,4 @@
-name: Run DeepSeek Coder 1.3B with Bolt.diy
+name: Run DeepSeek Coder 1.3B with Bolt.DIY
 
 on:
   workflow_dispatch:
@@ -16,98 +16,110 @@ jobs:
         ollama rm deepseek-coder:1.3b -f || true
         ollama pull deepseek-coder:1.3b
 
-    - name: Start Ollama
+    - name: Start Ollama (Optimized for Coding)
       run: |
         sudo ss -K dst localhost dport = 11434 || true
         OLLAMA_HOST=0.0.0.0 OLLAMA_ORIGINS=* ollama serve &
-        timeout 120 bash -c 'until curl -s localhost:11434 >/dev/null; do sleep 2; done'
+        timeout 180 bash -c 'until ollama list | grep -q "deepseek"; do sleep 10; done'
+        curl -v http://localhost:11434/api/tags
 
     - name: Set up Node.js
       uses: actions/setup-node@v3
       with:
         node-version: 18.x
 
-    - name: Create Bolt.diy app
+    - name: Install pnpm
+      run: npm install -g pnpm
+
+    - name: Create Bolt.DIY Project
       run: |
-        mkdir -p bolt-app/{public,src}
+        mkdir -p bolt-app/{src,public}
         cd bolt-app
-        
-        # Create package.json
         echo '{
-          "name": "ollama-bolt",
+          "name": "code-assistant",
           "version": "1.0.0",
-          "main": "index.js",
           "scripts": {
-            "start": "node index.js"
+            "dev": "vite dev",
+            "build": "vite build",
+            "preview": "vite preview"
           },
           "dependencies": {
-            "express": "^4.18.2",
-            "axios": "^1.6.2",
-            "cors": "^2.8.5"
+            "@boltui/diy": "^0.2.0",
+            "vite": "^4.4.0",
+            "axios": "^1.6.2"
           }
         }' > package.json
         
-        # Create main server file
-        echo 'const express = require("express");
-        const axios = require("axios");
-        const cors = require("cors");
+        echo 'import { defineConfig } from "vite";
+        export default defineConfig({
+          server: { port: 3000 }
+        });' > vite.config.js
         
-        const app = express();
-        app.use(cors());
-        app.use(express.json());
-        app.use(express.static("public"));
+        echo 'import { Bolt } from "@boltui/diy";
+        import axios from "axios";
         
-        app.post("/api/generate", async (req, res) => {
+        const app = new Bolt();
+        
+        app.page("/", () => /* html */
+          `<div class="p-4 max-w-2xl mx-auto">
+            <h1 class="text-2xl font-bold mb-4">DeepSeek Coder 1.3B</h1>
+            <textarea 
+              id="prompt" 
+              class="w-full p-2 border rounded mb-4" 
+              rows="5"
+              placeholder="Enter coding question..."></textarea>
+            <button 
+              class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
+              onclick="generateCode()">
+              Generate Code
+            </button>
+            <pre id="output" class="mt-4 p-4 bg-gray-100 rounded whitespace-pre-wrap"></pre>
+            
+            <script>
+              async function generateCode() {
+                const prompt = document.getElementById("prompt").value;
+                try {
+                  const response = await axios.post("/api/generate", { prompt });
+                  document.getElementById("output").textContent = response.data.response;
+                } catch (error) {
+                  document.getElementById("output").textContent = "Error: " + error.message;
+                }
+              }
+            </script>
+          </div>`
+        );
+        
+        app.route("POST", "/api/generate", async (req) => {
           try {
             const response = await axios.post("http://localhost:11434/api/generate", {
               model: "deepseek-coder:1.3b",
               prompt: req.body.prompt,
               stream: false
             });
-            res.json(response.data);
+            return Response.json(response.data);
           } catch (error) {
-            res.status(500).json({ error: error.message });
+            return Response.json({ error: error.message }, { status: 500 });
           }
-        });
+        });' > src/main.js
+
+    - name: Install Dependencies
+      run: |
+        cd bolt-app
+        pnpm install
+
+    - name: Start Bolt.DIY Server
+      run: |
+        cd bolt-app
+        pnpm run dev &
+        timeout 30 bash -c 'until curl -s localhost:3000 >/dev/null; do sleep 2; done'
+
+    - name: Verify Setup
+      run: |
+        echo "=== Ollama Verification ==="
+        curl -s http://localhost:11434/api/tags | jq
         
-        app.listen(3000, () => {
-          console.log("Bolt.diy server running on port 3000");
-        });' > index.js
-        
-        # Create frontend
-        echo '<!DOCTYPE html>
-        <html>
-        <head>
-            <title>Code Assistant</title>
-            <style>
-                body { font-family: sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
-                #response { white-space: pre-wrap; background: #f5f5f5; padding: 15px; border-radius: 5px; }
-            </style>
-        </head>
-        <body>
-            <h1>DeepSeek Coder 1.3B</h1>
-            <textarea id="prompt" rows="5" cols="80" placeholder="Enter your code question..."></textarea>
-            <br>
-            <button onclick="generate()">Generate Code</button>
-            <pre id="response"></pre>
-            
-            <script>
-                async function generate() {
-                    const prompt = document.getElementById("prompt").value;
-                    const response = await fetch("/api/generate", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ prompt })
-                    });
-                    const data = await response.json();
-                    document.getElementById("response").textContent = data.response;
-                }
-            </script>
-        </body>
-        </html>' > public/index.html
-        
-        npm install
-        npm start &
+        echo "=== Bolt.DIY API Check ==="
+        curl -s -X POST http://localhost:3000/api/generate -H "Content-Type: application/json" -d '{"prompt":"Write a Python hello world"}' | jq
 
     - name: Install ngrok
       run: |
@@ -115,7 +127,7 @@ jobs:
         tar -xf ngrok-v3-stable-linux-amd64.tgz
         chmod +x ngrok
 
-    - name: Expose Bolt UI
+    - name: Expose Coding Environment
       env:
         NGROK_TOKEN: ${{ secrets.NGROK_TOKEN }}
       run: |
