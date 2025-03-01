@@ -16,16 +16,18 @@ jobs:
         ollama rm deepseek-coder:1.3b -f || true
         ollama pull deepseek-coder:1.3b
 
-    - name: Start Ollama
+    - name: Start Ollama (Verified)
       run: |
         sudo ss -K dst localhost dport = 11434 || true
         OLLAMA_HOST=0.0.0.0 ollama serve &
-        timeout 180 bash -c 'until ollama list | grep -q "deepseek"; do sleep 5; done'
+        timeout 180 bash -c 'until curl -s http://localhost:11434/api/tags | grep -q "deepseek"; do sleep 5; done'
 
     - name: Clone Bolt.DIY
       run: |
         git clone https://github.com/Kidjig/bolt.diy.git bolt-app
         cd bolt-app
+        # Add Remix future flags to suppress warnings
+        echo 'module.exports = { future: { v3_lazyRouteDiscovery: true, v3_singleFetch: true } };' > remix.config.js
 
     - name: Set up Node.js
       uses: actions/setup-node@v3
@@ -43,7 +45,6 @@ jobs:
         cd bolt-app
         mkdir -p src
         echo 'import axios from "axios";
-
         export async function ollamaGenerate(prompt) {
           try {
             const response = await axios.post("http://localhost:11434/api/generate", {
@@ -63,25 +64,24 @@ jobs:
           return new Response(result);
         });' >> src/app.js
 
-    - name: Start Server (Fixed)
+    - name: Start Server
       run: |
         cd bolt-app
-        # Use correct port (5173) and suppress warnings
         nohup npm run dev > server.log 2>&1 &
-        
-        # Verify server startup with correct port
         timeout 60 bash -c 'until curl -s localhost:5173 >/dev/null; do sleep 2; done'
         cat server.log
 
-    - name: Install and Configure ngrok
+    - name: Configure ngrok
       run: |
         wget -q https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.tgz
         tar -xf ngrok-v3-stable-linux-amd64.tgz
         chmod +x ngrok
-        
-        # Start ngrok after server confirmation
-        ./ngrok config add-authtoken ${{ secrets.NGROK_TOKEN }}
-        ./ngrok http 5173 > ngrok.log &
-        timeout 10 bash -c 'until grep -q "started tunnel" ngrok.log; do sleep 1; done'
-        cat ngrok.log
-        echo "Public URL: $(curl -s localhost:4040/api/tunnels | jq -r '.tunnels[0].public_url')"
+
+    - name: Expose Service
+      env:
+        NGROK_TOKEN: ${{ secrets.NGROK_TOKEN }}
+      run: |
+        ./ngrok config add-authtoken $NGROK_TOKEN
+        ./ngrok http 5173 --log=stdout > ngrok.log &
+        timeout 30 bash -c 'until grep -q "started tunnel" ngrok.log; do sleep 1; done'
+        echo "Public URL: $(grep 'url=https://' ngrok.log | awk -F'url=' '{print $2}')"
