@@ -11,7 +11,7 @@ jobs:
       run: |
         curl -fsSL https://ollama.ai/install.sh | sh
 
-    - name: Pull DeepSeek Coder 1.3B
+    - name: Pull DeepSeek Coder
       run: |
         ollama rm deepseek-coder:1.3b -f || true
         ollama pull deepseek-coder:1.3b
@@ -63,21 +63,25 @@ jobs:
           return new Response(result);
         });' >> src/app.js
 
-    - name: Start Server
+    - name: Start Server (Fixed)
       run: |
         cd bolt-app
-        npm run dev &
-        timeout 30 bash -c 'until curl -s localhost:3000 >/dev/null; do sleep 2; done'
+        # Use correct port (5173) and suppress warnings
+        nohup npm run dev > server.log 2>&1 &
+        
+        # Verify server startup with correct port
+        timeout 60 bash -c 'until curl -s localhost:5173 >/dev/null; do sleep 2; done'
+        cat server.log
 
-    - name: Install ngrok
+    - name: Install and Configure ngrok
       run: |
         wget -q https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.tgz
         tar -xf ngrok-v3-stable-linux-amd64.tgz
         chmod +x ngrok
-
-    - name: Expose UI
-      env:
-        NGROK_TOKEN: ${{ secrets.NGROK_TOKEN }}
-      run: |
-        ./ngrok config add-authtoken $NGROK_TOKEN
-        ./ngrok http 3000
+        
+        # Start ngrok after server confirmation
+        ./ngrok config add-authtoken ${{ secrets.NGROK_TOKEN }}
+        ./ngrok http 5173 > ngrok.log &
+        timeout 10 bash -c 'until grep -q "started tunnel" ngrok.log; do sleep 1; done'
+        cat ngrok.log
+        echo "Public URL: $(curl -s localhost:4040/api/tunnels | jq -r '.tunnels[0].public_url')"
