@@ -29,7 +29,7 @@ jobs:
 
     - name: Clone Bolt.DIY Template
       run: |
-        git clone https://github.com/stackblitz-labs/bolt.diy-template bolt-app
+        git clone https://github.com/stackblitz-labs/bolt.diy.git bolt-app
         cd bolt-app
         npm install
         
