@@ -1,0 +1,43 @@
+name: Run Ollama Phi + Open WebUI
+
+on:
+  workflow_dispatch:
+
+jobs:
+  ollama-webui:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Install Ollama
+      run: |
+        curl -fsSL https://ollama.ai/install.sh | sh
+
+    - name: Pull Phi model
+      run: ollama pull phi
+
+    - name: Start Ollama
+      run: ollama serve &
+
+    - name: Install Docker
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y docker.io
+
+    - name: Run Open WebUI
+      run: |
+        docker run -d -p 8080:8080 --add-host=host.docker.internal:host-gateway \
+          -v open-webui:/app/backend/data \
+          --name open-webui \
+          ghcr.io/open-webui/open-webui:main
+
+    - name: Install ngrok
+      run: |
+        wget -q https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.tgz
+        tar -xf ngrok-v3-stable-linux-amd64.tgz
+        chmod +x ngrok
+
+    - name: Expose Open WebUI via ngrok
+      env:
+        NGROK_TOKEN: ${{ secrets.NGROK_TOKEN }}
+      run: |
+        ./ngrok config add-authtoken $NGROK_TOKEN
+        ./ngrok http 8080
