@@ -22,11 +22,10 @@ jobs:
         OLLAMA_HOST=0.0.0.0 ollama serve &
         timeout 180 bash -c 'until curl -s http://localhost:11434/api/tags | grep -q "deepseek"; do sleep 5; done'
 
-    - name: Clone Bolt.DIY
+    - name: Clone and Configure Bolt.DIY
       run: |
         git clone https://github.com/Kidjig/bolt.diy.git bolt-app
         cd bolt-app
-        # Add Remix future flags to suppress warnings
         echo 'module.exports = { future: { v3_lazyRouteDiscovery: true, v3_singleFetch: true } };' > remix.config.js
 
     - name: Set up Node.js
@@ -64,24 +63,27 @@ jobs:
           return new Response(result);
         });' >> src/app.js
 
-    - name: Start Server
+    - name: Start Services
       run: |
+        # Start Bolt.DIY in background
         cd bolt-app
         nohup npm run dev > server.log 2>&1 &
-        timeout 60 bash -c 'until curl -s localhost:5173 >/dev/null; do sleep 2; done'
-        cat server.log
+        
+        # Start ngrok in background
+        ../ngrok http 5173 --log=stdout > ngrok.log &
+        
+        # Verify services
+        timeout 60 bash -c 'until curl -s localhost:5173 >/dev/null && grep -q "started tunnel" ngrok.log; do sleep 2; done'
+        echo "Public URL: $(grep 'url=https://' ngrok.log | awk -F'url=' '{print $2}')"
 
-    - name: Configure ngrok
-      run: |
-        wget -q https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.tgz
-        tar -xf ngrok-v3-stable-linux-amd64.tgz
-        chmod +x ngrok
-
-    - name: Expose Service
+    - name: Keep Alive
       env:
         NGROK_TOKEN: ${{ secrets.NGROK_TOKEN }}
       run: |
-        ./ngrok config add-authtoken $NGROK_TOKEN
-        ./ngrok http 5173 --log=stdout > ngrok.log &
-        timeout 30 bash -c 'until grep -q "started tunnel" ngrok.log; do sleep 1; done'
-        echo "Public URL: $(grep 'url=https://' ngrok.log | awk -F'url=' '{print $2}')"
+        # Continuous health checks
+        while true; do
+          echo "=== Service Status ==="
+          curl -s localhost:11434/api/tags | jq -r '.models[].name'
+          curl -s localhost:5173 >/dev/null && echo "Bolt.DIY: Running" || echo "Bolt.DIY: Down"
+          sleep 300  # 5 minute intervals
+        done
