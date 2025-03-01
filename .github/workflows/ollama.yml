@@ -16,110 +16,32 @@ jobs:
         ollama rm deepseek-coder:1.3b -f || true
         ollama pull deepseek-coder:1.3b
 
-    - name: Start Ollama (Optimized for Coding)
+    - name: Start Ollama
       run: |
         sudo ss -K dst localhost dport = 11434 || true
         OLLAMA_HOST=0.0.0.0 OLLAMA_ORIGINS=* ollama serve &
         timeout 180 bash -c 'until ollama list | grep -q "deepseek"; do sleep 10; done'
-        curl -v http://localhost:11434/api/tags
 
     - name: Set up Node.js
       uses: actions/setup-node@v3
       with:
-        node-version: 18.x
+        node-version: 20.x
 
-    - name: Install pnpm
-      run: npm install -g pnpm
-
-    - name: Create Bolt.DIY Project
+    - name: Clone Bolt.DIY Template
       run: |
-        mkdir -p bolt-app/{src,public}
+        git clone https://github.com/stackblitz-labs/bolt.diy-template bolt-app
         cd bolt-app
-        echo '{
-          "name": "code-assistant",
-          "version": "1.0.0",
-          "scripts": {
-            "dev": "vite dev",
-            "build": "vite build",
-            "preview": "vite preview"
-          },
-          "dependencies": {
-            "@boltui/diy": "^0.2.0",
-            "vite": "^4.4.0",
-            "axios": "^1.6.2"
-          }
-        }' > package.json
+        npm install
         
-        echo 'import { defineConfig } from "vite";
-        export default defineConfig({
-          server: { port: 3000 }
-        });' > vite.config.js
-        
-        echo 'import { Bolt } from "@boltui/diy";
-        import axios from "axios";
-        
-        const app = new Bolt();
-        
-        app.page("/", () => /* html */
-          `<div class="p-4 max-w-2xl mx-auto">
-            <h1 class="text-2xl font-bold mb-4">DeepSeek Coder 1.3B</h1>
-            <textarea 
-              id="prompt" 
-              class="w-full p-2 border rounded mb-4" 
-              rows="5"
-              placeholder="Enter coding question..."></textarea>
-            <button 
-              class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
-              onclick="generateCode()">
-              Generate Code
-            </button>
-            <pre id="output" class="mt-4 p-4 bg-gray-100 rounded whitespace-pre-wrap"></pre>
-            
-            <script>
-              async function generateCode() {
-                const prompt = document.getElementById("prompt").value;
-                try {
-                  const response = await axios.post("/api/generate", { prompt });
-                  document.getElementById("output").textContent = response.data.response;
-                } catch (error) {
-                  document.getElementById("output").textContent = "Error: " + error.message;
-                }
-              }
-            </script>
-          </div>`
-        );
-        
-        app.route("POST", "/api/generate", async (req) => {
-          try {
-            const response = await axios.post("http://localhost:11434/api/generate", {
-              model: "deepseek-coder:1.3b",
-              prompt: req.body.prompt,
-              stream: false
-            });
-            return Response.json(response.data);
-          } catch (error) {
-            return Response.json({ error: error.message }, { status: 500 });
-          }
-        });' > src/main.js
-
-    - name: Install Dependencies
-      run: |
-        cd bolt-app
-        pnpm install
+        # Add Ollama integration
+        npm install axios
+        sed -i '/import { Bolt }/a import axios from "axios";' src/app.js
 
     - name: Start Bolt.DIY Server
       run: |
         cd bolt-app
-        pnpm run dev &
+        npm run dev &
         timeout 30 bash -c 'until curl -s localhost:3000 >/dev/null; do sleep 2; done'
-
-    - name: Verify Setup
-      run: |
-        echo "=== Ollama Verification ==="
-        curl -s http://localhost:11434/api/tags | jq
-        
-        echo "=== Bolt.DIY API Check ==="
-        curl -s -X POST http://localhost:3000/api/generate -H "Content-Type: application/json" -d '{"prompt":"Write a Python hello world"}' | jq
 
     - name: Install ngrok
       run: |
@@ -127,7 +49,7 @@ jobs:
         tar -xf ngrok-v3-stable-linux-amd64.tgz
         chmod +x ngrok
 
-    - name: Expose Coding Environment
+    - name: Expose UI
       env:
         NGROK_TOKEN: ${{ secrets.NGROK_TOKEN }}
       run: |
