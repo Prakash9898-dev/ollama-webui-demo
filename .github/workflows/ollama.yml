@@ -15,9 +15,13 @@ jobs:
       run: ollama pull phi
 
     - name: Start Ollama
-      run: ollama serve &
+      run: |
+        pkill -f ollama || true
+        OLLAMA_HOST=0.0.0.0 ollama serve &
+        sleep 5
+        curl http://localhost:11434
 
-    - name: Install Docker (Fixed)
+    - name: Install Docker
       run: |
         sudo apt-get remove -y docker docker-engine docker.io containerd runc
         sudo apt-get update
@@ -34,6 +38,8 @@ jobs:
         docker run -d -p 8080:8080 \
           --add-host=host.docker.internal:host-gateway \
           -e OLLAMA_BASE_URL="http://host.docker.internal:11434" \
+          -e DEFAULT_USERNAME="admin" \
+          -e DEFAULT_PASSWORD="your_password" \
           -v open-webui:/app/backend/data \
           --name open-webui \
           ghcr.io/open-webui/open-webui:main
