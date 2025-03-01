@@ -11,34 +11,26 @@ jobs:
       run: |
         curl -fsSL https://ollama.ai/install.sh | sh
 
-    - name: Pull Phi model
-      run: ollama pull phi
-
-    - name: Start Ollama (Robust Setup)
+    - name: Pull Phi model (Force Refresh)
       run: |
-        # Force-clear port and ensure clean start
-        sudo killall -9 ollama || true
+        ollama rm phi || true
+        ollama pull phi
+
+    - name: Start Ollama (Verified Setup)
+      run: |
         sudo ss -K dst localhost dport = 11434 || true
+        OLLAMA_HOST=0.0.0.0 ollama serve &
         
-        # Start with explicit binding
-        OLLAMA_HOST=0.0.0.0 OLLAMA_PORT=11434 ollama serve &
-        
-        # Enhanced readiness check
-        timeout 30 bash -c 'while ! nc -z localhost 11434; do sleep 1; done'
+        # Verify model availability
+        timeout 60 bash -c 'until ollama list | grep -q "phi"; do sleep 2; done'
         curl -v http://localhost:11434/api/tags
 
     - name: Install Docker
       run: |
-        sudo apt-get remove -y docker docker-engine docker.io containerd runc
         sudo apt-get update
-        sudo apt-get install -y ca-certificates curl gnupg
-        sudo install -m 0755 -d /etc/apt/keyrings
-        curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-        echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu noble stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-        sudo apt-get update
-        sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+        sudo apt-get install -y docker.io
 
-    - name: Run Open WebUI (Host Network)
+    - name: Run Open WebUI (Model-Verified)
       run: |
         docker run -d --network host \
           -e OLLAMA_BASE_URL="http://localhost:11434" \
@@ -48,7 +40,7 @@ jobs:
           --name open-webui \
           ghcr.io/open-webui/open-webui:main
 
-    - name: Verify Container Connectivity
+    - name: Verify Container Connection
       run: |
         docker exec open-webui curl -v http://localhost:11434/api/tags
 
