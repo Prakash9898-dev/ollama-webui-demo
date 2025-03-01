@@ -14,18 +14,17 @@ jobs:
     - name: Pull Phi model
       run: ollama pull phi
 
-    - name: Start Ollama (Fixed)
+    - name: Start Ollama (Robust Setup)
       run: |
-        # Force release port 11434
+        # Force-clear port and ensure clean start
+        sudo killall -9 ollama || true
         sudo ss -K dst localhost dport = 11434 || true
         
-        # Start Ollama on all interfaces
-        OLLAMA_HOST=0.0.0.0 ollama serve &
+        # Start with explicit binding
+        OLLAMA_HOST=0.0.0.0 OLLAMA_PORT=11434 ollama serve &
         
-        # Wait for API readiness
-        timeout 30 bash -c 'until curl -s http://localhost:11434 >/dev/null; do sleep 2; done'
-        
-        # Verify
+        # Enhanced readiness check
+        timeout 30 bash -c 'while ! nc -z localhost 11434; do sleep 1; done'
         curl -v http://localhost:11434/api/tags
 
     - name: Install Docker
@@ -38,35 +37,20 @@ jobs:
         echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu noble stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
         sudo apt-get update
         sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-        sudo docker --version
 
-    - name: Run Open WebUI
+    - name: Run Open WebUI (Host Network)
       run: |
-        # Get host IP dynamically
-        HOST_IP=$(hostname -I | awk '{print $1}')
-        
-        docker run -d -p 8080:8080 \
-          -e OLLAMA_BASE_URL="http://$HOST_IP:11434" \
+        docker run -d --network host \
+          -e OLLAMA_BASE_URL="http://localhost:11434" \
           -e DEFAULT_USERNAME="admin" \
           -e DEFAULT_PASSWORD="your_password" \
           -v open-webui:/app/backend/data \
           --name open-webui \
           ghcr.io/open-webui/open-webui:main
 
-    # Debugging steps
-    - name: Verify Network Connectivity
+    - name: Verify Container Connectivity
       run: |
-        HOST_IP=$(hostname -I | awk '{print $1}')
-        echo "Host IP: $HOST_IP"
-        docker run --rm alpine ping -c 3 $HOST_IP
-
-    - name: Test Ollama API from Container
-      run: |
-        HOST_IP=$(hostname -I | awk '{print $1}')
-        docker run --rm curlimages/curl curl -v http://$HOST_IP:11434/api/tags
-
-    - name: Check Open WebUI Logs
-      run: docker logs open-webui
+        docker exec open-webui curl -v http://localhost:11434/api/tags
 
     - name: Install ngrok
       run: |
