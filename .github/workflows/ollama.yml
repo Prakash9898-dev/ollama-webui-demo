@@ -1,10 +1,10 @@
-name: Bolt.new AI Development Environment with DeepSeek Coder
+name: Run DeepSeek Coder 1.3B + Open WebUI
 
 on:
   workflow_dispatch:
 
 jobs:
-  bolt-ai-environment:
+  ollama-webui:
     runs-on: ubuntu-latest
     steps:
     - name: Install Ollama
@@ -16,45 +16,44 @@ jobs:
         ollama rm deepseek-coder:1.3b -f || true
         ollama pull deepseek-coder:1.3b
 
-    - name: Start Ollama Service
+    - name: Start Ollama (Optimized for Coding)
       run: |
         sudo ss -K dst localhost dport = 11434 || true
         OLLAMA_HOST=0.0.0.0 OLLAMA_ORIGINS=* ollama serve &
+        
+        # Extended timeout for code model initialization
         timeout 180 bash -c 'until ollama list | grep -q "deepseek"; do sleep 10; done'
+        curl -v http://localhost:11434/api/tags
 
-    - name: Clone Bolt.new Repository
+    - name: Install Docker Properly
       run: |
-        git clone https://github.com/coleam00/bolt.new-any-llm.git
-        cd bolt.new-any-llm && git checkout main
+        sudo apt-get remove -y docker docker-engine docker.io containerd runc
+        sudo apt-get update
+        sudo apt-get install -y ca-certificates curl gnupg
+        sudo install -m 0755 -d /etc/apt/keyrings
+        curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+        echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu noble stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+        sudo apt-get update
+        sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 
-    - name: Setup Node.js Environment
-      uses: actions/setup-node@v3
-      with:
-        node-version: 18
-        cache: 'pnpm'
-
-    - name: Install pnpm Globally
-      run: npm install -g pnpm
-
-    - name: Install Project Dependencies
-      working-directory: ./bolt.new-any-llm
+    - name: Run Open WebUI (Code-Optimized)
       run: |
-        pnpm install
-        pnpm run build
+        docker run -d --network host \
+          -e OLLAMA_BASE_URL="http://localhost:11434" \
+          -e WEBUI_SECRET_KEY="your_secret_key" \
+          -e DEFAULT_USERNAME="admin" \
+          -e DEFAULT_PASSWORD="your_secure_password" \
+          -v open-webui:/app/backend/data \
+          --name open-webui \
+          ghcr.io/open-webui/open-webui:main
 
-    - name: Configure Environment Variables
-      working-directory: ./bolt.new-any-llm
+    - name: Verify Coding Setup
       run: |
-        cp .env.example .env.local
-        echo "OLLAMA_API_BASE_URL=http://localhost:11434" >> .env.local
-        echo "DEFAULT_NUM_CTX=8192" >> .env.local
-        echo "VITE_LOG_LEVEL=info" >> .env.local
-
-    - name: Start Bolt.new Server
-      working-directory: ./bolt.new-any-llm
-      run: |
-        pnpm run start &
-        timeout 60 bash -c 'until curl -s http://localhost:3000 > /dev/null; do sleep 5; done'
+        echo "=== Host Verification ==="
+        curl -s http://localhost:11434/api/tags | jq
+        
+        echo "=== Container Verification ==="
+        docker exec open-webui curl -s http://localhost:11434/api/tags | jq
 
     - name: Install ngrok
       run: |
@@ -62,15 +61,9 @@ jobs:
         tar -xf ngrok-v3-stable-linux-amd64.tgz
         chmod +x ngrok
 
-    - name: Expose Web Interface
+    - name: Expose Coding Environment
       env:
         NGROK_TOKEN: ${{ secrets.NGROK_TOKEN }}
       run: |
         ./ngrok config add-authtoken $NGROK_TOKEN
-        ./ngrok http 3000 > /dev/null &
-
-    - name: Get Public URL
-      run: |
-        sleep 5  # Wait for ngrok initialization
-        curl -s localhost:4040/api/tunnels | jq -r '.tunnels[0].public_url'
-        echo "Bolt.new is now running at the above URL with DeepSeek Coder integration!"
+        ./ngrok http 8080
