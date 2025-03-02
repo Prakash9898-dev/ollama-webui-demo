@@ -1,4 +1,4 @@
-name: Run DeepSeek Coder 1.3B + Bolt.new AI Dev Environment
+name: Bolt.new AI Development Environment with DeepSeek Coder
 
 on:
   workflow_dispatch:
@@ -25,28 +25,33 @@ jobs:
     - name: Clone Bolt.new Repository
       run: |
         git clone https://github.com/coleam00/bolt.new-any-llm.git
-        cd bolt.new-any-llm
-        
-    - name: Setup Node.js
+        cd bolt.new-any-llm && git checkout main
+
+    - name: Setup Node.js Environment
       uses: actions/setup-node@v3
       with:
         node-version: 18
+        cache: 'pnpm'
 
-    - name: Install Dependencies
+    - name: Install pnpm Globally
+      run: npm install -g pnpm
+
+    - name: Install Project Dependencies
+      working-directory: ./bolt.new-any-llm
       run: |
-        npm install -g pnpm
         pnpm install
+        pnpm run build
 
-    - name: Configure Environment
+    - name: Configure Environment Variables
+      working-directory: ./bolt.new-any-llm
       run: |
         cp .env.example .env.local
         echo "OLLAMA_API_BASE_URL=http://localhost:11434" >> .env.local
         echo "DEFAULT_NUM_CTX=8192" >> .env.local
-
-    - name: Build Bolt.new
-      run: pnpm run build
+        echo "VITE_LOG_LEVEL=info" >> .env.local
 
     - name: Start Bolt.new Server
+      working-directory: ./bolt.new-any-llm
       run: |
         pnpm run start &
         timeout 60 bash -c 'until curl -s http://localhost:3000 > /dev/null; do sleep 5; done'
@@ -57,13 +62,15 @@ jobs:
         tar -xf ngrok-v3-stable-linux-amd64.tgz
         chmod +x ngrok
 
-    - name: Expose Coding Environment
+    - name: Expose Web Interface
       env:
         NGROK_TOKEN: ${{ secrets.NGROK_TOKEN }}
       run: |
         ./ngrok config add-authtoken $NGROK_TOKEN
-        ./ngrok http 3000
+        ./ngrok http 3000 > /dev/null &
 
-    - name: Print Access URL
+    - name: Get Public URL
       run: |
+        sleep 5  # Wait for ngrok initialization
         curl -s localhost:4040/api/tunnels | jq -r '.tunnels[0].public_url'
+        echo "Bolt.new is now running at the above URL with DeepSeek Coder integration!"
