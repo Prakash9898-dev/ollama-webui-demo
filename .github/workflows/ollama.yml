@@ -1,92 +1,69 @@
-name: Run DeepSeek Coder with Bolt.DIY
+name: Run DeepSeek Coder 1.3B + Bolt.new AI Dev Environment
 
 on:
   workflow_dispatch:
 
 jobs:
-  ollama-bolt:
+  bolt-ai-environment:
     runs-on: ubuntu-latest
     steps:
     - name: Install Ollama
       run: |
         curl -fsSL https://ollama.ai/install.sh | sh
 
-    - name: Pull DeepSeek Coder
+    - name: Pull DeepSeek Coder 1.3B
       run: |
         ollama rm deepseek-coder:1.3b -f || true
         ollama pull deepseek-coder:1.3b
 
-    - name: Start Ollama (Verified)
+    - name: Start Ollama Service
       run: |
         sudo ss -K dst localhost dport = 11434 || true
-        OLLAMA_HOST=0.0.0.0 ollama serve &
-        timeout 180 bash -c 'until curl -s http://localhost:11434/api/tags | grep -q "deepseek"; do sleep 5; done'
+        OLLAMA_HOST=0.0.0.0 OLLAMA_ORIGINS=* ollama serve &
+        timeout 180 bash -c 'until ollama list | grep -q "deepseek"; do sleep 10; done'
 
-    - name: Clone Bolt.DIY
+    - name: Clone Bolt.new Repository
       run: |
-        git clone https://github.com/Kidjig/bolt.diy.git bolt-app
-        cd bolt-app
-        echo 'module.exports = { future: { v3_lazyRouteDiscovery: true, v3_singleFetch: true } };' > remix.config.js
-
-    - name: Set up Node.js
+        git clone https://github.com/coleam00/bolt.new-any-llm.git
+        cd bolt.new-any-llm
+        
+    - name: Setup Node.js
       uses: actions/setup-node@v3
       with:
-        node-version: 18.x
+        node-version: 18
 
     - name: Install Dependencies
       run: |
-        cd bolt-app
-        npm install
-        npm install axios
+        npm install -g pnpm
+        pnpm install
 
-    - name: Add Ollama Integration
+    - name: Configure Environment
       run: |
-        cd bolt-app
-        mkdir -p src
-        echo 'import axios from "axios";
-        export async function ollamaGenerate(prompt) {
-          try {
-            const response = await axios.post("http://localhost:11434/api/generate", {
-              model: "deepseek-coder:1.3b",
-              prompt: prompt,
-              stream: false
-            });
-            return response.data.response;
-          } catch (error) {
-            return `Error: ${error.message}`;
-          }
-        }' > src/ollama.js
+        cp .env.example .env.local
+        echo "OLLAMA_API_BASE_URL=http://localhost:11434" >> .env.local
+        echo "DEFAULT_NUM_CTX=8192" >> .env.local
 
-        echo 'import { ollamaGenerate } from "./ollama.js";
-        app.route("/api/generate", async (req) => {
-          const result = await ollamaGenerate(req.body.prompt);
-          return new Response(result);
-        });' >> src/app.js
+    - name: Build Bolt.new
+      run: pnpm run build
 
-    - name: Install and Configure ngrok
+    - name: Start Bolt.new Server
+      run: |
+        pnpm run start &
+        timeout 60 bash -c 'until curl -s http://localhost:3000 > /dev/null; do sleep 5; done'
+
+    - name: Install ngrok
       run: |
         wget -q https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.tgz
         tar -xf ngrok-v3-stable-linux-amd64.tgz
         chmod +x ngrok
-        sudo mv ngrok /usr/local/bin/
 
-    - name: Start Services
+    - name: Expose Coding Environment
       env:
         NGROK_TOKEN: ${{ secrets.NGROK_TOKEN }}
       run: |
-        ngrok config add-autoken $NGROK_TOKEN
-        ngrok http 5173 --log=stdout > ngrok.log &
-        
-        cd bolt-app
-        nohup npm run dev > server.log 2>&1 &
-        
-        timeout 120 bash -c 'until curl -s localhost:5173 >/dev/null && grep -q "started tunnel" ngrok.log; do sleep 2; done'
-        echo "Public URL: $(grep 'url=https://' ngrok.log | awk -F'url=' '{print $2}')"
+        ./ngrok config add-authtoken $NGROK_TOKEN
+        ./ngrok http 3000
 
-    - name: Keep Alive
+    - name: Print Access URL
       run: |
-        while true; do
-          echo "Service active since: $(date)"
-          echo "Ollama models: $(curl -s localhost:11434/api/tags | jq '.models[].name')"
-          sleep 300
-        done
+        curl -s localhost:4040/api/tunnels | jq -r '.tunnels[0].public_url'
